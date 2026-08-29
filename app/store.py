@@ -71,10 +71,14 @@ def _normalize_image_url(url: str) -> str:
         return url
     if url.startswith("/uploads/"):
         return url
+    if url.startswith("uploads/"):
+        return "/" + url
     try:
         parsed = urlparse(url)
         if parsed.path.startswith("/uploads/"):
             return parsed.path
+        if parsed.path.startswith("uploads/"):
+            return "/" + parsed.path
     except Exception:
         pass
     return url
