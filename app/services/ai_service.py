@@ -10,6 +10,8 @@ from typing import Any, Optional
 
 import httpx
 
+from urllib.parse import urlparse
+
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -183,18 +185,34 @@ def _is_data_uri(url: str) -> bool:
 
 
 def _resolve_local_path(path_or_url: str) -> Optional[str]:
+    """Map /uploads/<file> (relative or absolute public URL) to a local file."""
+    path = path_or_url
+    try:
+        parsed = urlparse(path_or_url)
+        if parsed.scheme in ("http", "https") and parsed.path:
+            path = parsed.path
+    except Exception:
+        path = path_or_url
+
+    normalized = path.replace("\\", "/")
+    filename = None
+    if "/uploads/" in normalized:
+        filename = os.path.basename(normalized.rsplit("/uploads/", 1)[-1])
+    elif normalized.startswith("uploads/"):
+        filename = os.path.basename(normalized)
+    elif path_or_url.startswith("/uploads/"):
+        filename = os.path.basename(path_or_url)
+
+    if filename:
+        candidate = os.path.join(settings.upload_dir, filename)
+        if os.path.isfile(candidate):
+            return candidate
+
     candidate = path_or_url
-    if candidate.startswith("/uploads/"):
-        candidate = os.path.join(settings.upload_dir, os.path.basename(candidate))
     if not os.path.isabs(candidate):
         candidate = os.path.abspath(candidate)
     if os.path.isfile(candidate):
         return candidate
-    alt = os.path.join(
-        os.path.dirname(settings.database_path), "..", path_or_url.lstrip("/\\")
-    )
-    if os.path.isfile(alt):
-        return alt
     return None
 
 
@@ -208,6 +226,20 @@ def _load_image_bytes(path_or_url: str) -> tuple[bytes, str]:
         except Exception as exc:
             raise GeminiServiceError(
                 f"Invalid image data URI: {exc}",
+                code="image_unavailable",
+                status_code=400,
+            ) from exc
+
+    local = _resolve_local_path(path_or_url)
+    if local:
+        mime, _ = mimetypes.guess_type(local)
+        mime = mime or "image/jpeg"
+        try:
+            with open(local, "rb") as f:
+                return f.read(), mime
+        except OSError as exc:
+            raise GeminiServiceError(
+                f"Failed to read image file: {exc}",
                 code="image_unavailable",
                 status_code=400,
             ) from exc
@@ -228,24 +260,11 @@ def _load_image_bytes(path_or_url: str) -> tuple[bytes, str]:
                 status_code=400,
             ) from exc
 
-    local = _resolve_local_path(path_or_url)
-    if not local:
-        raise GeminiServiceError(
-            f"Image not found: {path_or_url}",
-            code="image_unavailable",
-            status_code=400,
-        )
-    mime, _ = mimetypes.guess_type(local)
-    mime = mime or "image/jpeg"
-    try:
-        with open(local, "rb") as f:
-            return f.read(), mime
-    except OSError as exc:
-        raise GeminiServiceError(
-            f"Failed to read image file: {exc}",
-            code="image_unavailable",
-            status_code=400,
-        ) from exc
+    raise GeminiServiceError(
+        f"Image not found: {path_or_url}",
+        code="image_unavailable",
+        status_code=400,
+    )
 
 
 def _build_gemini_parts(prompt: str, image_urls: list[str]) -> list[dict[str, Any]]:

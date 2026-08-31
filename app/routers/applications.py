@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
 from app.auth import require_platform_admin
 from app.config import settings
+from app.media import public_media_url
 from app.schemas import (
     OrgApplicationCreate,
     SoloDermatologistApplicationCreate,
@@ -75,7 +76,8 @@ async def upload_application_document(
     content = await file.read()
     with open(path, "wb") as f:
         f.write(content)
-    return {"url": f"/uploads/{name}", "filename": name}
+    relative = f"/uploads/{name}"
+    return {"url": public_media_url(relative), "filename": name, "path": relative}
 
 @router.post("/org", status_code=201)
 def submit_org_application(body: OrgApplicationCreate):

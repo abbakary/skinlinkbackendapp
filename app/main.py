@@ -4,7 +4,7 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, EmailStr
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -12,6 +12,7 @@ from starlette.requests import Request
 
 from app.config import settings
 from app.database import init_db
+from app.media import reset_request_base_url, set_request_base_url
 from app.routers import (
     admin,
     ai,
@@ -49,18 +50,55 @@ app.add_middleware(
 )
 
 
+class RequestBaseUrlMiddleware(BaseHTTPMiddleware):
+    """Capture the public origin (honouring Railway/proxy forwarded headers)."""
+
+    async def dispatch(self, request: Request, call_next):
+        forwarded_host = (
+            request.headers.get("x-forwarded-host")
+            or request.headers.get("host")
+            or ""
+        ).split(",")[0].strip()
+        forwarded_proto = (
+            request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
+        ).split(",")[0].strip()
+        if forwarded_host:
+            base = f"{forwarded_proto}://{forwarded_host}"
+        else:
+            base = str(request.base_url).rstrip("/")
+        token = set_request_base_url(base)
+        try:
+            return await call_next(request)
+        finally:
+            reset_request_base_url(token)
+
+
 class UploadsCORSMiddleware(BaseHTTPMiddleware):
     """Ensure /uploads/* static files always carry CORS headers."""
     async def dispatch(self, request: Request, call_next):
+        if request.url.path.startswith("/uploads/") and request.method == "OPTIONS":
+            return Response(
+                status_code=204,
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+                    "Access-Control-Allow-Headers": "*",
+                    "Cross-Origin-Resource-Policy": "cross-origin",
+                    "Access-Control-Max-Age": "86400",
+                },
+            )
         response = await call_next(request)
         if request.url.path.startswith("/uploads/"):
             response.headers["Access-Control-Allow-Origin"] = "*"
-            response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+            response.headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
             response.headers["Access-Control-Allow-Headers"] = "*"
+            response.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+            response.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable")
         return response
 
 
 app.add_middleware(UploadsCORSMiddleware)
+app.add_middleware(RequestBaseUrlMiddleware)
 
 # Serve uploaded images
 os.makedirs(settings.upload_dir, exist_ok=True)

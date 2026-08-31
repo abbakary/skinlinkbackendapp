@@ -6,13 +6,12 @@ import uuid
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Optional
-from urllib.parse import urlparse
-
 from passlib.context import CryptContext
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.media import expand_media_urls, normalize_stored_media_url
 from app.database import (
     SessionLocal,
     TenantModel,
@@ -67,21 +66,7 @@ def _uid(prefix: str) -> str:
 
 
 def _normalize_image_url(url: str) -> str:
-    if not url:
-        return url
-    if url.startswith("/uploads/"):
-        return url
-    if url.startswith("uploads/"):
-        return "/" + url
-    try:
-        parsed = urlparse(url)
-        if parsed.path.startswith("/uploads/"):
-            return parsed.path
-        if parsed.path.startswith("uploads/"):
-            return "/" + parsed.path
-    except Exception:
-        pass
-    return url
+    return normalize_stored_media_url(url)
 
 
 def _model_to_dict(obj: Any) -> Optional[dict[str, Any]]:
@@ -111,7 +96,7 @@ def _model_to_dict(obj: Any) -> Optional[dict[str, Any]]:
             "messages": obj.messages or [],
         }
     elif isinstance(obj, UserModel):
-        return {
+        return expand_media_urls({
             "id": obj.id,
             "tenantId": obj.tenantId,
             "name": obj.name,
@@ -139,7 +124,7 @@ def _model_to_dict(obj: Any) -> Optional[dict[str, Any]]:
             "indemnityPolicyNumber": obj.indemnityPolicyNumber,
             "indemnityExpiry": obj.indemnityExpiry,
             "documents": obj.documents or [],
-        }
+        })
     elif isinstance(obj, PatientModel):
         return {
             "id": obj.id,
@@ -170,7 +155,7 @@ def _model_to_dict(obj: Any) -> Optional[dict[str, Any]]:
             "notes": obj.notes,
         }
     elif isinstance(obj, DermCaseModel):
-        return {
+        return expand_media_urls({
             "id": obj.id,
             "tenantId": obj.tenantId,
             "ref": obj.ref,
@@ -197,7 +182,7 @@ def _model_to_dict(obj: Any) -> Optional[dict[str, Any]]:
             "notes": obj.notes or [],
             "createdAt": obj.createdAt,
             "updatedAt": obj.updatedAt,
-        }
+        })
     elif isinstance(obj, ReferralModel):
         return {
             "id": obj.id,
@@ -237,9 +222,9 @@ def _model_to_dict(obj: Any) -> Optional[dict[str, Any]]:
             "updatedAt": obj.updatedAt,
         }
     elif isinstance(obj, DraftModel):
-        return {"id": obj.id, "userId": obj.userId, "updatedAt": obj.updatedAt, **(obj.data or {})}
+        return expand_media_urls({"id": obj.id, "userId": obj.userId, "updatedAt": obj.updatedAt, **(obj.data or {})})
     elif isinstance(obj, ApplicationModel):
-        return {
+        return expand_media_urls({
             "id": obj.id,
             "applicationType": obj.applicationType,
             "status": obj.status,
@@ -250,7 +235,7 @@ def _model_to_dict(obj: Any) -> Optional[dict[str, Any]]:
             "reviewNotes": obj.reviewNotes,
             "verifiedItems": obj.verifiedItems or [],
             **(obj.data or {}),
-        }
+        })
     elif isinstance(obj, ApiKeyApplicationModel):
         return {
             "id": obj.id,
@@ -279,7 +264,7 @@ def _model_to_dict(obj: Any) -> Optional[dict[str, Any]]:
             "createdAt": obj.createdAt,
         }
     elif isinstance(obj, SpecialistReviewModel):
-        return {
+        result = {
             "id": obj.id,
             "caseId": obj.caseId,
             "specialistId": obj.specialistId,
@@ -294,6 +279,7 @@ def _model_to_dict(obj: Any) -> Optional[dict[str, Any]]:
             "partialEndorsement": obj.partialEndorsement,
             **(obj.data or {}),
         }
+        return expand_media_urls(result)
     return None
 
 

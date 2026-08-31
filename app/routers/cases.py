@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from app.auth import get_current_user, get_effective_tenant_id, require_tenant
 from app.config import settings
+from app.media import public_media_url
 from app.schemas import CaseCreate, CaseNoteCreate, CaseUpdate
 from app.store import store
 from app.routers.ai import run_image_quality_checks_for_case, run_ai_assessment_for_case
@@ -246,7 +247,8 @@ async def upload_image(
     content = await file.read()
     with open(path, "wb") as f:
         f.write(content)
-    return {"url": f"/uploads/{name}", "filename": name}
+    relative = f"/uploads/{name}"
+    return {"url": public_media_url(relative), "filename": name, "path": relative}
 
 
 @router.get("/{case_id}")
